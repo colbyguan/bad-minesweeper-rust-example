@@ -1,6 +1,6 @@
-use std::{borrow::Borrow, collections::HashSet, fmt};
-
-use rand::{thread_rng, Rng};
+use crossterm::{execute, style::Print};
+use rand::Rng;
+use std::{fmt, io::stdout};
 
 pub enum VictoryState {
     Continue,
@@ -36,6 +36,8 @@ impl fmt::Display for Cell {
 }
 
 pub struct Game {
+    cursor_x: i8,
+    cursor_y: i8,
     width: i8,
     height: i8,
     mine_percent: i8,
@@ -44,9 +46,28 @@ pub struct Game {
     grid: Box<[Cell]>,
 }
 
+// Emoji keycaps 1 to 8
+const EMOJI_NUMBERS: [&'static str; 9] = [
+    "  ",
+    "\u{0031}\u{FE0F}\u{20E3}",
+    "\u{0032}\u{FE0F}\u{20E3}",
+    "\u{0033}\u{FE0F}\u{20E3}",
+    "\u{0034}\u{FE0F}\u{20E3}",
+    "\u{0035}\u{FE0F}\u{20E3}",
+    "\u{0036}\u{FE0F}\u{20E3}",
+    "\u{0037}\u{FE0F}\u{20E3}",
+    "\u{0038}\u{FE0F}\u{20E3}",
+];
+const STRING_NUMBERS: [&'static str; 9] = ["  ", "1 ", "2 ", "3 ", "4 ", "5 ", "6 ", "7 ", "8 "];
+const TERM_BG_WHITE: &'static str = "\x1b[48;5;240m";
+const TERM_BG_YELLOW: &'static str = "\x1b[48;5;242m";
+const TERM_RESET: &'static str = "\x1b[0m";
+
 impl Game {
     pub fn new(width: i8, height: i8, mine_percent: i8) -> Game {
         let mut game = Game {
+            cursor_x: width / 2,
+            cursor_y: height / 2,
             width: width,
             height: height,
             mine_percent,
@@ -65,27 +86,49 @@ impl Game {
         game
     }
 
+    pub fn move_cursor(&mut self, dx: i8, dy: i8) -> VictoryState {
+        // Wrap any out of bounds
+        self.cursor_x = (self.cursor_x + dx + self.width) % self.width;
+        self.cursor_y = (self.cursor_y + dy + self.height) % self.height;
+        // 7 + 1 + 8 % 8
+        VictoryState::Continue
+    }
+
     pub fn draw(&self) {
-        let mut x_axis = "    ".to_owned();
-        for col in 0..self.width {
-            x_axis.push_str(format!(" {:02} ", col).as_str());
-        }
-        println!("{}", x_axis);
+        // let mut x_axis = "    ".to_owned();
+        // for col in 0..self.width {
+        //     x_axis.push_str(format!(" {:02} ", col).as_str());
+        // }
+        // println!("{}", x_axis);
         for row in 0..self.height {
-            print!(" {:02} ", row);
+            // print!(" {:02} ", row);
             for col in 0..self.width {
                 let cell = self.get_cell(col, row);
+                if row == self.cursor_y && col == self.cursor_x {
+                    self.raw_print(TERM_BG_YELLOW);
+                } else if row == self.cursor_y || col == self.cursor_x {
+                    self.raw_print(TERM_BG_WHITE);
+                }
                 match cell.state {
-                    CellState::Flagged => print!("[f] "),
-                    CellState::Hidden => print!("[ ] "),
+                    CellState::Flagged => self.raw_print("⛳"),
+                    CellState::Hidden => self.raw_print("🔲"),
                     CellState::Revealed => match cell.cell_type {
-                        CellType::Count(c) => print!("[{}] ", c),
-                        CellType::Mine => print!("[*] "),
+                        CellType::Count(c) => self.raw_print(STRING_NUMBERS[c as usize]),
+                        CellType::Mine => self.raw_print("💣"),
                     },
                 }
+                if row == self.cursor_y || col == self.cursor_x {
+                    self.raw_print(TERM_RESET);
+                }
             }
-            println!();
+            self.raw_print("\r\n");
         }
+        self.raw_print("\r\n");
+        self.raw_print("\r\n");
+    }
+
+    fn raw_print(&self, s: &str) {
+        execute!(stdout(), Print(s));
     }
 
     pub fn draw_debug(&self) {
@@ -109,12 +152,12 @@ impl Game {
 
     pub fn reset_mines_and_counts(&mut self) {
         let mine_count = ((self.mine_percent as f64 / 100.0) * self.grid.len() as f64) as usize;
-        self.mine_count = mine_count as i8;
         let mut rng = rand::thread_rng();
         let len = self.grid.len();
         for cell in self.grid.iter_mut() {
             if rng.gen_range(0..len) < mine_count {
                 cell.cell_type = CellType::Mine;
+                self.mine_count += 1;
             }
         }
         for y in 0..self.height {
@@ -168,6 +211,11 @@ impl Game {
     fn is_oob(&self, ax: i8, ay: i8) -> bool {
         ax < 0 || ax >= self.width || ay < 0 || ay >= self.height
     }
+
+    pub fn click_at_cursor(&mut self) -> VictoryState {
+        self.click(self.cursor_x, self.cursor_y)
+    }
+
     pub fn click(&mut self, x: i8, y: i8) -> VictoryState {
         if self.get_cell(x, y).cell_type == CellType::Mine {
             VictoryState::Over
@@ -176,6 +224,11 @@ impl Game {
             VictoryState::Continue
         }
     }
+
+    pub fn flag_at_cursor(&mut self) -> VictoryState {
+        self.flag(self.cursor_x, self.cursor_y)
+    }
+
     pub fn flag(&mut self, x: i8, y: i8) -> VictoryState {
         let cell = self.get_cell_mut(x, y);
         if cell.state != CellState::Flagged {
@@ -189,7 +242,6 @@ impl Game {
                 self.correct_flag_count -= 1;
             }
         }
-        println!("{} {}", self.correct_flag_count, self.mine_count);
         if self.correct_flag_count == self.mine_count {
             VictoryState::Won
         } else {
