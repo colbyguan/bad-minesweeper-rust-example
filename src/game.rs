@@ -127,7 +127,7 @@ impl Game {
         self.raw_print("\r\n");
     }
 
-    fn raw_print(&self, s: &str) {
+    pub fn raw_print(&self, s: &str) {
         execute!(stdout(), Print(s));
     }
 
