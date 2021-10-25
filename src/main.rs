@@ -102,6 +102,10 @@ impl Controller {
         }
     }
 
+    fn print_controls(&self) {
+        self.game.raw_print("\r\nControls:\r\n\tMove: Arrow keys\r\n\tFlag: f\r\n\tReveal: Space\r\n\r\n");
+    }
+
     fn show_menu(&mut self, lost: bool) {
         if lost {
             print!("Game over! Try again? [y/n]: ");
@@ -125,6 +129,7 @@ impl Controller {
             crossterm::terminal::Clear(ClearType::All);
         }
         enable_raw_mode();
+        self.print_controls();
         self.game.draw();
         let action = self.get_action();
         if action.is_err() {
